@@ -21,9 +21,6 @@ var sm = (function (win) {
             return type(obj) === "[object Function]";
         },
 
-        mix = function () {
-
-        },
         //浏览器测试
         isOpera = typeof opera !== "undefined" && opera.toString() === "[object Opera]",
         head = document.getElementsByTagName("head")[0],
@@ -60,8 +57,6 @@ var sm = (function (win) {
                 } else if (part === "..") {
 
                     if (i === 1 && (ary[2] === '..' || ary[0] === '..')) {
-
-
                         break;
                     } else if (i > 0) {
                         ary.splice(i - 1, 2);
@@ -74,14 +69,12 @@ var sm = (function (win) {
         getHost = function (url) {
             return url.replace(/^(\w+:\/\/[^/]+)\/?.*$/, '$1');
         },
-
         getDirectory = function (url) {
-
             var s = url.match(/.*(?=\/.*$)/);
-            return (s ? s[0] : '.') + '/';
+            return (s ? s[0] : '.');
 
         },
-        normalizeURL = function (name, baseName) {
+        normalize = function (name, baseName) {
             var pkg, pkgPath, pkgConfig;
 
             //相对路径
@@ -117,19 +110,9 @@ var sm = (function (win) {
                 var pkgConfig = config("pkgs", {
                     name:pkgName
                 });
-
-
-                //
                 if (pkgConfig && pkgConfig.path) {
-                    pkgPath = getDirectory(require.normalize(pkgConfig.path));
-                    var v = version || pkgConfig.version;
-                    if (v) {
-                        pkgPath = pkgPath.replace("{version}", v);
+                    pkgPath = pkgConfig.path;
 
-
-                    } else {
-                        pkgPath = pkgPath.replace("{version}", "");
-                    }
                     if (pkgName === name) {
                         pkgPath = pkgConfig.main ? (pkgPath + pkgConfig.main) : (pkgPath + "/index.js")
                     }
@@ -138,7 +121,7 @@ var sm = (function (win) {
 
                 }
                 else {
-                    pkgPath = normalizeURL("./widget", baseName);
+                    pkgPath = normalize("./core", baseName);
                     nameArray.splice(0, 0, pkgPath);
                 }
 
@@ -147,14 +130,6 @@ var sm = (function (win) {
 
             name = name.replace(/([^:\/])\/+/g, '$1\/');
 
-            name = SNS.normalize(name)
-
-            return name;
-        },
-
-        normalize = function (name, baseName) {
-
-            name = normalizeURL(name, baseName, version);
             if ((name.indexOf(".js") === -1) && name.indexOf(".css") === -1) {
                 name += ".js";
             }
@@ -162,16 +137,12 @@ var sm = (function (win) {
             return name;
         },
 
+
+
         isCssPath = function (name) {
             return  name.indexOf(".css") !== -1
         },
 
-        normalizeBatch = function (nameArray, baseName) {
-            for (var i = 0; i < nameArray.length; i++) {
-                nameArray[i] = normalize(nameArray[i], baseName);
-            }
-            return nameArray;
-        },
 
         nameToUrl = function (name) {
             if (name.indexOf("?t") == -1)name += "?t=" + defaultConfig.timestamp
@@ -199,9 +170,7 @@ var sm = (function (win) {
 
             if (callback) addScriptLoadListener(node, callback);
             node.src = url;
-            for (var p in configs) {
-                node.setAttribute("data-" + p, configs[p]);
-            }
+
 
 
             if (head.firstChild) {
@@ -285,32 +254,11 @@ var sm = (function (win) {
         link.rel = 'stylesheet';
         if (callback)addLinkLoadListener(link, callback);
         link.href = url;
-        for (var p in configs) {
-            link.setAttribute("data-" + p, configs[p]);
-        }
+
 
         head.appendChild(link);
 
 
-    }
-
-
-    var currentPath = getDirectory(SNS.baseURI);
-
-    function getInteractiveScript() {
-        var script ,
-            i,
-            scripts = document.getElementsByTagName('script');
-        if (document.attachEvent) {
-
-            //ie6-9 得到当前正在执行的script标签
-            for (i = scripts.length - 1; i > -1 && (script = scripts[i]); i--) {
-                if (script.readyState === 'interactive') {
-                    return script;
-                }
-            }
-
-        }
     }
 
     function getCurrentScript() {
@@ -397,36 +345,12 @@ var sm = (function (win) {
         return name;
     }
 
-    function initModule(name) {
-
-        var mod = memoryModules[name];
-        if (!mod) throw new Error(name + " load error");
-        var mdeps = [];
-
-        for (var i = 0; i < mod.deps.length; i++) {
-            if (mod.deps[i] && !isKeyWord(mod.deps[i]) && !isRequire(mod.deps[i]) && !isMemoize(mod.deps[i])) {
-                mdeps.push(mod.deps[i]);
-            }
-        }
-
-        if (mdeps && mdeps.length > 0) {
-            mod.require(mdeps);
-        }
-        else {
-            exeModule(name);
-        }
-
-    }
-
     function wrapRequireCallback(name, deps, callback) {
-        var require = createRequire(name);
-        normalizeBatch(deps, name);
-        name = name + SNS.guid();
+        name = name + guid();
 
         memoryModules[name] = {
             deps   :deps,
-            factory:callback,
-            require:require
+            factory:callback
         }
         return name;
     }
@@ -453,42 +377,31 @@ var sm = (function (win) {
             mod = memoryModules[name],
             deps = mod.deps,
             canExe = true,
-            requireMods = [];
+            exportsMods = [];
 
         for (var i = 0; i < deps.length; i++) {
-            if (isKeyWord(deps[i])) {
-                requireMods.push(mod.require);
-                continue;
-            }
+
             if (!isRequire(deps[i])) {
                 canExe = false;
             } else {
-                requireMods.push(runedModules[deps[i]]);
+                exportsMods.push(runedModules[deps[i]].exports);
             }
         }
 
         if (!canExe) return;
+        var exports;
 
+        if(mod.factory){
+            exports = mod.factory.apply(mod, requireMods);
+        }
 
-        var result = mod.factory.apply(mod, requireMods);
 
         memoryModules[name] = null;
 
-        var eventTarget = {
-            name  :name,
-            result:result
-        }
-
-        for (var i = 0; i < beforeRequire.length; i++) {
-            beforeRequire[i](eventTarget);
-        }
-
-        result = eventTarget.result;
-        //null 代表模块已经存在
-        if (result === undefined) {
-            result = null
-        }
-        runedModules[name] = result;
+        runedModules[name] ={
+            name:name,
+            exports:exports
+        };
 
         notify(name);
 
@@ -682,8 +595,6 @@ var sm = (function (win) {
                 if (loadingModules[name]) {
                     delete loadingModules[name];
                 }
-
-
             }
 
             if (name.indexOf(".css") !== -1) {
@@ -718,7 +629,7 @@ var sm = (function (win) {
                 //  pkgs[i].timestamp =normalizeURL(pkgs[i].timestamp, pkgs[i].path);
             }
 
-            mix(defaultConfig, obj, true);
+
             defaultConfig.pkgs = oldPkgs.concat(pkgs);
 
 
@@ -732,7 +643,7 @@ var sm = (function (win) {
     require = createRequire(location.href);
 
 
-    SNS.config("pkgs", {
+    config("pkgs", {
         name:"self",
         path:currentPath
     })
