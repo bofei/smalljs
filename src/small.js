@@ -3,15 +3,12 @@
  */
 var sm = (function (win) {
 
-    /*
+    /**
      * -------------------------------------------------------------
      * 定义一些工具方法
      * -------------------------------------------------------------
      */
-
-    var
-        //初始化全局require方法
-        require,
+    var require, //初始化全局require方法
         //语言增强
         toString = Object.prototype.toString,
         type = function (obj) {
@@ -19,13 +16,18 @@ var sm = (function (win) {
         },
         isFunction = function (obj) {
             return type(obj) === "[object Function]";
-        },
+        };
 
+
+    /**
+     * -------------------------------------------------------------
+     * 预定义变量，大部分用于保存模块的状态
+     * -------------------------------------------------------------
+     */
         //浏览器测试
-        isOpera = typeof opera !== "undefined" && opera.toString() === "[object Opera]",
+    var isOpera = typeof opera !== "undefined" && opera.toString() === "[object Opera]",
         head = document.getElementsByTagName("head")[0],
 
-        //全局配置
         defaultConfig = {
             pkgs     :[],
             charset  :"utf-8",
@@ -42,10 +44,17 @@ var sm = (function (win) {
         memoryModules = {},
 
         //保存模块执行后的返回结果
-        runedModules = {},
-        guid = function () {
-            return  (Math.random() * (1 << 30)).toString(16).replace('.', '');
-        },
+        runedModules = {};
+
+
+    /**
+     * -------------------------------------------------------------
+     * 创建script和link标签
+     * -------------------------------------------------------------
+     */
+    var guid = function () {
+        return  (Math.random() * (1 << 30)).toString(16).replace('.', '');
+    },
 
         trimDots = function (ary) {
             var i, part;
@@ -143,22 +152,27 @@ var sm = (function (win) {
             if ((i = id.indexOf('#')) != -1)
                 id = id.slice(0, i);
             return id;
-        },
+        };
 
-        createScript = function (url, callback) {
-            var node = document.createElement("script");
-            node.type = "text/javascript";
-            node.charset = defaultConfig.charset;
-            node.async = true;
-            if (callback) addScriptLoadListener(node, callback);
-            node.src = url;
-            if (head.firstChild) {
-                head.insertBefore(node, head.firstChild);
-            } else {
-                head.appendChild(node);
-            }
-            return node;
-        },
+    /*
+     * -------------------------------------------------------------
+     * 创建script和link标签
+     * -------------------------------------------------------------
+     */
+    var createScript = function (url, callback) {
+        var node = document.createElement("script");
+        node.type = "text/javascript";
+        node.charset = defaultConfig.charset;
+        node.async = true;
+        if (callback) addScriptLoadListener(node, callback);
+        node.src = url;
+        if (head.firstChild) {
+            head.insertBefore(node, head.firstChild);
+        } else {
+            head.appendChild(node);
+        }
+        return node;
+    },
 
         addScriptLoadListener = function (script, callback) {
             if (script.attachEvent) {
