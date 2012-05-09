@@ -1,158 +1,50 @@
 /**
- * ??????AMD???????��??
- * @example
- * //??????????????
- *
- * SNS.require(["sns/follow"], function(Follow){
- *      new Follow()
- *  })
- *
- *
- *
- * //??????????????????��???��?
- *
- * SNS.require([{module:"sns/follow",version:"1.0",skin:null}], function(Follow){
- *   new Follow()
- * })
- *
+ * 实现一个AMD类似的模块方案
  */
-
-/**
- * ?????????SNS widget?????
- * ???????????????????
- *
- */
-
-SNS.provide(function () {
+var sm = (function (win) {
 
     /*
      * -------------------------------------------------------------
-     * ?????��???????
+     * 定义一些工具方法
      * -------------------------------------------------------------
      */
 
     var
-        win = window,
-        //????????require????
+        //初始化全局require方法
         require,
-        exports,
-        //???????
-        isFunction = SNS.isFunction,
-        isArray = SNS.isArray(),
-        mix = SNS.mix,
-        //????��
-        storage = SNS.storage,
-        //?????????
+        //语言增强
+        toString = Object.prototype.toString,
+        type = function (obj) {
+            return obj == null ? String(obj) : toString.call(obj);
+        },
+        isFunction = function (obj) {
+            return type(obj) === "[object Function]";
+        },
+
+        //浏览器测试
         isOpera = typeof opera !== "undefined" && opera.toString() === "[object Opera]",
         head = document.getElementsByTagName("head")[0],
 
-        //sns???????
+        //全局配置
         defaultConfig = {
             pkgs     :[],
-            timestamp:20111212,
-            skin     :true,
-            combo    :[]
+            charset  :"utf-8",
+            timestamp:1
         },
-
-        comboConfigs = {},
-
-        //{"sns/feed":[]}
-        setComboConfigs = function (configs) {
-            for (var p  in configs) {
-                var name = require.normalize(p);
-                comboConfigs[name] = [];
-                for (var i = 0; i < configs[p].length; i++) {
-                    comboConfigs[name].push(require.normalize(configs[p][i]))
-                }
-            }
-        },
-
-
         currentlyAddingModuleName,
-
-        //????????��??????????????��???????
+        //预先声明一些变量保存加载过程中的模块信息
         loadingModules = {},
 
-        //??????????????????
+        //保存正在加载的模块信息
         definedModules = [],
 
-        //???????????????????????
+        //保存已经被加载完成的模块信息
         memoryModules = {},
 
-        //?????????��???????
-        requireModules = {},
-
-        /**
-         *
-         *
-         */
-            keyWords = /*["require"]*/[],
-
-        isKeyWord = function (s) {
-            var result = false;
-            for (var i = 0; i < keyWords.length; i++) {
-                if (keyWords[i] === s) {
-                    result = true;
-                    break;
-
-                }
-            }
-            return result;
-        },
-
-        /**
-         * ????callback
-         */
-            custemEvents = {},
-        beforeRequire = [],
-        beforeLoad = [],
-        beforeDefined = [],
-        afterDefined = [],
-        beforeMemoize = [],
-        beforeExe = [],
-        afterExe = [],
-
-
-        //????????????
-        SNS_TIME_STAMP = "sns_time_stamp",
-        SNS_INTERVAL_TIME = "sns_interval_time",
-        SNS_LAST_MODIFIY = "sns_last_modifiy",
-
-        timeStamp = function (t) {
-            if (t)storage(SNS_TIME_STAMP, t);
-            else return storage(SNS_TIME_STAMP) || 20111206;
-        },
-        interval = function (interval) {
-            if (interval)storage(SNS_INTERVAL_TIME, interval);
-            else return storage(SNS_INTERVAL_TIME) || 0;
-        },
-
-
-        // ????url???��??????��? requirejs
-        parseUriOptions = {
-            strictMode:false,
-            key       :["source", "protocol", "authority", "userInfo", "user", "password", "host", "port", "relative", "path", "directory", "file", "query", "anchor"],
-            q         :{
-                name  :"queryKey",
-                parser:/(?:^|&)([^&=]*)=?([^&]*)/g
-            },
-            parser    :{
-                strict:/^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
-                loose :/^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
-            }
-        },
-
-        parseUri = function (str) {
-            var o = parseUriOptions,
-                m = o.parser[o.strictMode ? "strict" : "loose"].exec(str),
-                uri = {},
-                i = 14;
-            while (i--) uri[o.key[i]] = m[i] || "";
-            uri[o.q.name] = {};
-            uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
-                if ($1) uri[o.q.name][$1] = $2;
-            });
-            return uri;
+        //保存模块执行后的返回结果
+        runedModules = {},
+        guid = function () {
+            return  (Math.random() * (1 << 30)).toString(16).replace('.', '');
         },
 
         trimDots = function (ary) {
@@ -169,8 +61,6 @@ SNS.provide(function () {
                 } else if (part === "..") {
 
                     if (i === 1 && (ary[2] === '..' || ary[0] === '..')) {
-
-
                         break;
                     } else if (i > 0) {
                         ary.splice(i - 1, 2);
@@ -183,107 +73,62 @@ SNS.provide(function () {
         getHost = function (url) {
             return url.replace(/^(\w+:\/\/[^/]+)\/?.*$/, '$1');
         },
-
         getDirectory = function (url) {
-
             var s = url.match(/.*(?=\/.*$)/);
-            return (s ? s[0] : '.') + '/';
+            return (s ? s[0] : '.');
 
         },
-
-
-        normalizeURL = function (name, baseName, version) {
-            if (!isKeyWord(name)) {
-
-                var pkg, pkgPath, pkgConfig;
-
-                //???��??
-
-                if (name.charAt(0) === ".") {
-
-                    baseName = baseName.split("/");
-                    baseName = baseName.slice(0, baseName.length - 1);
-
-                    name = baseName.concat(name.split("/"));
-
-                    trimDots(name);
-
-                    name = name.join("/");
-
-                }
-
-                //??��??
-                else if (name.charAt(0) === "/") {
-                    name += getHost(baseName);
-                }
-                //???��??
-                else if (name.match(/^\w+:/)) {
-
-                }
-                //????��??
-                else {
-
-                    //??????
-                    var nameArray = name.split("/");
-                    var pkgName = nameArray[0];
-
-                    var pkgConfig = SNS.config("pkgs", {
-                        name:pkgName
-                    });
-
-
-                    //
-                    if (pkgConfig && pkgConfig.path) {
-                        pkgPath = getDirectory(require.normalize(pkgConfig.path));
-                        var v = version || pkgConfig.version;
-                        if (v) {
-                            pkgPath = pkgPath.replace("{version}", v);
-
-
-                        } else {
-                            pkgPath = pkgPath.replace("{version}", "");
-                        }
-                        if (pkgName === name) {
-                            pkgPath = pkgConfig.main ? (pkgPath + pkgConfig.main) : (pkgPath + "/index.js")
-                        }
-
-                        nameArray.splice(0, 1, pkgPath);
-
-                    }
-                    else {
-                        pkgPath = normalizeURL("./widget", baseName);
-                        nameArray.splice(0, 0, pkgPath);
-                    }
-
-                    name = nameArray.join("/");
-                }
+        normalize = function (name, baseName) {
+            var pkg, pkgPath;
+            //相对路径
+            if (name.charAt(0) === ".") {
+                name = (getDirectory(baseName) + "/" + name).split("/");
+                trimDots(name);
+                name = name.join("/");
             }
-            name = name.replace(/([^:\/])\/+/g, '$1\/');
-
-            name = SNS.normalize(name)
-
-            return name;
-        },
-
-        normalize = function (name, baseName, version) {
-            if (!isKeyWord(name)) {
-                name = normalizeURL(name, baseName, version);
-                if ((name.indexOf(".js") === -1) && name.indexOf(".css") === -1) {
-                    name += ".js";
+            //根路径
+            else if (name.charAt(0) === "/") {
+                name += getHost(baseName);
+            }
+            //绝对路径
+            else if (name.match(/^\w+:/)) {
+            }
+            //顶级路径
+            else {
+                //包配置
+                var nameArray = name.split("/");
+                var pkgName = nameArray[0];
+                var pkgConfig;
+                for (var i = 0; i < defaultConfig.pkgs.length; i++) {
+                    if (pkgName == defaultConfig.pkgs[i].name) {
+                        pkgConfig = defaultConfig.pkgs[i];
+                    }
                 }
+
+                if (pkgConfig && pkgConfig.path) {
+                    pkgPath = pkgConfig.path;
+                    //路径名等于包名
+                    if (pkgName === name) {
+                        pkgPath = pkgConfig.main ? (pkgPath + pkgConfig.main) : (pkgPath + "/index.js")
+                    }
+                    nameArray.splice(0, 1, pkgPath);
+                }
+                else {
+                    pkgPath = normalize("./core", baseName);
+                    nameArray.splice(0, 0, pkgPath);
+                }
+                name = nameArray.join("/");
+            }
+
+            name = name.replace(/([^:\/])\/+/g, '$1\/');
+            if ((name.indexOf(".js") === -1) && name.indexOf(".css") === -1) {
+                name += ".js";
             }
             return name;
         },
 
         isCssPath = function (name) {
             return  name.indexOf(".css") !== -1
-        },
-
-        normalizeBatch = function (nameArray, baseName) {
-            for (var i = 0; i < nameArray.length; i++) {
-                nameArray[i] = normalize(nameArray[i], baseName);
-            }
-            return nameArray;
         },
 
         nameToUrl = function (name) {
@@ -293,24 +138,56 @@ SNS.provide(function () {
 
         urlToName = function (url) {
             var i, id = url;
-            id = id.replace("??", "<>")
             if ((i = id.indexOf('?')) != -1)
                 id = id.slice(0, i);
             if ((i = id.indexOf('#')) != -1)
                 id = id.slice(0, i);
-            id = id.replace("<>", "??");
             return id;
         },
-        getCurrentScript = SNS.getCurrentScript,
-        createScript = SNS.getScript,
+
+        createScript = function (url, callback) {
+            var node = document.createElement("script");
+            node.type = "text/javascript";
+            node.charset = defaultConfig.charset;
+            node.async = true;
+            if (callback) addScriptLoadListener(node, callback);
+            node.src = url;
+            if (head.firstChild) {
+                head.insertBefore(node, head.firstChild);
+            } else {
+                head.appendChild(node);
+            }
+            return node;
+        },
+
+        addScriptLoadListener = function (script, callback) {
+            if (script.attachEvent) {
+                script.attachEvent("onreadystatechange", function () {
+                    var rs = script.readyState;
+                    if (rs === 'loaded' || rs === 'complete') {
+                        callback && callback();
+                    }
+                });
+            } else {
+                script.addEventListener("load", callback, false);
+                script.addEventListener("error", function () {
+                    console.log(script.src + " is error");
+                    callback && callback();
+                }, false);
+            }
+        };
 
 
-        addLoadListener = SNS.addScriptLoadListener;
+    function createLink(url, callback) {
+        var link = document.createElement('link');
+        link.type = 'text/css';
+        link.rel = 'stylesheet';
+        if (callback)addLinkLoadListener(link, callback);
+        link.href = url;
+        head.appendChild(link);
+    }
 
-
-    var counter = 0;
-
-    function checker(link, callback) {
+    function checkerLink(link, callback) {
 
         if (!link._checkCounter) {
             link._checkCounter = 0;
@@ -326,7 +203,6 @@ SNS.provide(function () {
                     callback();
                     return;
                 }
-
                 if (link._checkCounter++ > 100) {
                     callback();
                     return;
@@ -334,7 +210,7 @@ SNS.provide(function () {
             }
         }
 
-        window.setTimeout(checker, 10, link, callback);
+        window.setTimeout(checkerLink, 10, link, callback);
     }
 
 
@@ -345,379 +221,48 @@ SNS.provide(function () {
             link.onerror = callback;
         }
         else {
-            checker(link, callback);
+            checkerLink(link, callback);
         }
 
     }
 
-
-    function createLink(configs, url, callback) {
-
-        var link = document.createElement('link');
-        link.type = 'text/css';
-        link.rel = 'stylesheet';
-        if (callback)addLinkLoadListener(link, callback);
-        link.href = url;
-        for (var p in configs) {
-            link.setAttribute("data-" + p, configs[p]);
-        }
-
-        head.appendChild(link);
-
-
-    }
-
-
-    var currentPath = getDirectory(SNS.baseURI);
-
-    function getInteractiveScript() {
+    function getCurrentScript() {
         var script ,
             i,
             scripts = document.getElementsByTagName('script');
-        if (document.attachEvent) {
-
-            //ie6-9 ????????????��?script???
+        //firefox4 and opera
+        if (document.currentScript) {
+            return document.currentScript;
+        } else if (document.attachEvent) {
+            //ie6-9 得到当前正在执行的script标签
             for (i = scripts.length - 1; i > -1 && (script = scripts[i]); i--) {
                 if (script.readyState === 'interactive') {
                     return script;
                 }
             }
-
-        }
-    }
-
-    //require = createRequire(getCurrentScript().src);
-
-
-    //combo url ???
-    var comboRecord = {};
-
-
-    //???��??????combo??? url;
-    function isComboUrl(url) {
-        return url.indexOf("??") !== -1 && url.indexOf(",") !== -1;
-    }
-
-    function splitComboUrl(comboUrl) {
-
-        var result = [];
-        var temp = comboUrl.split("??");
-        var host = temp[0];
-
-        var path = temp[1].split(",");
-
-        for (var i = 0; i < path.length; i++) {
-            result.push(host + path[i]);
-        }
-
-        return result;
-
-    }
-
-    function comboUrl(urlArray) {
-        var result;
-        if (SNS.config("supportCombo")) {
-
-
-            //????css??js???????combo????????
-            var jsUrls = {}, cssUrls = {}, localurl = [], result = [];
-
-            for (var i = 0; i < urlArray.length; i++) {
-                if (urlArray[i].indexOf(".css") !== -1) {
-                    var uri = parseUri(urlArray[i]);
-                    if (uri.protocol == "file") {
-                        localurl.push(urlArray[i]);
-                        continue;
-                    }
-
-                    if (!cssUrls[uri.host])cssUrls[uri.host] = [];
-                    cssUrls[uri.host].push(uri.path);
-                }
-                else {
-
-                    var uri = parseUri(urlArray[i]);
-                    if (uri.protocol === "file") {
-                        localurl.push(urlArray[i]);
-                        continue;
-                    }
-                    if (!jsUrls[uri.host])jsUrls[uri.host] = [];
-                    jsUrls[uri.host].push(uri.path);
-                }
-
-            }
-
-            for (var p in cssUrls) {
-                result.push("http://" + p + "??" + cssUrls[p].join(","));
-            }
-            for (var p in jsUrls) {
-                result.push("http://" + p + "??" + jsUrls[p].join(","));
-            }
-
-            result = result.concat(localurl);
         }
         else {
-            result = urlArray;
-        }
-
-
-        return result;
-    }
-
-    function comboAfterDefined(module) {
-
-        var
-            name = module.name,
-            p = name.indexOf("??"),
-            index,
-            recode
-
-        if (isComboUrl(name)) {
-
-            recode = comboRecord[name];
-            if (recode) {
-                index = ++recode.index;
-
-            } else {
-                index = 0;
-                recode = comboRecord[name] = {
-                    index    :index = 0,
-                    nameArray:splitComboUrl(name)
-                };
+            // 参考 https://github.com/samyk/jiagra/blob/master/jiagra.js
+            // chrome and firefox4以前的版本
+            var stack;
+            try {
+                makeReferenceError
+            } catch (e) {
+                stack = e.stack;
             }
-
-            module.name = recode.nameArray[index];
-
-        }
-
-    }
-
-
-    function memoize(name, deps, factory) {
-
-        var eventTarget = {
-            name   :name,
-            deps   :deps,
-            factory:factory
-        }
-
-        for (var i = 0; i < beforeMemoize.length; i++) {
-
-            beforeMemoize[i](eventTarget);
-        }
-
-        name = eventTarget.name;
-        deps = deps;
-        factory = factory;
-
-        //  deps = normalizeBatch(deps, name);
-
-        var realDeps = [];
-
-
-        if (memoryModules[name]) throw new Error(name + " ??????????");
-
-
-        for (var i = 0; i < deps.length; i++) {
-
-
-            var nmlName = normalize(deps[i], name);
-
-
-            if (nmlName !== name) {
-                realDeps.push(nmlName);
-            }
-        }
-
-        memoryModules[name] = {
-            deps   :realDeps,
-            factory:factory,
-            require:createRequire(name)
-        }
-        breakCirle(memoryModules[name]);
-
-
-        return name;
-    }
-
-    function initModule(name) {
-
-        var mod = memoryModules[name];
-        if (!mod) throw new Error(name + " load error");
-        var mdeps = [];
-
-        for (var i = 0; i < mod.deps.length; i++) {
-            if (mod.deps[i] && !isKeyWord(mod.deps[i]) && !isRequire(mod.deps[i]) && !isMemoize(mod.deps[i])) {
-                mdeps.push(mod.deps[i]);
-            }
-        }
-
-        if (mdeps && mdeps.length > 0) {
-            mod.require(mdeps);
-        }
-        else {
-            exeModule(name);
-        }
-
-    }
-
-    function wrapRequireCallback(name, deps, callback) {
-        var require = createRequire(name);
-        normalizeBatch(deps, name);
-        name = name + SNS.guid();
-
-        memoryModules[name] = {
-            deps   :deps,
-            factory:callback,
-            require:require
-        }
-        return name;
-    }
-
-    function isMemoize(name) {
-        return memoryModules[name] ? true : false;
-    }
-
-    function isRequire(name) {
-        return requireModules[name] === undefined ? false : true;
-    }
-
-    function isLoading(name) {
-        return loadingModules[name] ? true : false;
-    }
-
-    function exeModule(name) {
-
-        var
-            mod = memoryModules[name],
-            deps = mod.deps,
-            canExe = true,
-            requireMods = [];
-
-        for (var i = 0; i < deps.length; i++) {
-            if (isKeyWord(deps[i])) {
-                requireMods.push(mod.require);
-                continue;
-            }
-            if (!isRequire(deps[i])) {
-                canExe = false;
-            } else {
-                requireMods.push(requireModules[deps[i]]);
-            }
-        }
-
-        if (!canExe) return;
-
-
-
-        var result = mod.factory.apply(mod, requireMods);
-
-        memoryModules[name] = null;
-
-        var eventTarget = {
-            name  :name,
-            result:result
-        }
-
-        for (var i = 0; i < beforeRequire.length; i++) {
-            beforeRequire[i](eventTarget);
-        }
-
-        result = eventTarget.result;
-        //null ?????????????
-        if (result === undefined) {
-            result = null
-        }
-        requireModules[name] = result;
-
-        notify(name);
-
-    }
-
-    function notify(name) {
-
-        var mod, deps;
-
-        for (var p in memoryModules) {
-
-            mod = memoryModules[p];
-            if (mod) {
-
-                deps = mod.deps;
-                for (var j = 0; j < deps.length; j++) {
-                    if (deps[j] === name) {
-
-
-                        exeModule(p);
-                    }
+            if (!stack)
+                return undefined;
+            // chrome uses at, ff uses @
+            var e = stack.indexOf(' at ') !== -1 ? ' at ' : '@';
+            while (stack.indexOf(e) !== -1)stack = stack.substring(stack.indexOf(e) + e.length);
+            stack = stack.replace(/:\d+:\d+$/ig, "");
+            for (i = scripts.length - 1; i > -1 && (script = scripts[i]); i--) {
+                if (scripts[i].src === stack) {
+                    return script;
                 }
             }
-
         }
     }
-
-
-    if (!window.console) {
-        window.console = {};
-        window.console.log = function (msg) {
-        }
-    }
-
-
-    /**
-     * -------------------------------------------------------------
-     * ???????
-     * -------------------------------------------------------------
-     */
-
-    function define(deps, factory) {
-
-        var name, script, i;
-        if (isFunction(deps)) {
-
-            factory = deps;
-            deps = [];
-        }
-
-        if (!factory) return;
-
-        if (document.attachEvent) {
-            var
-                temp,
-                scripts = document.getElementsByTagName('script');
-
-            //ie6-9 ????????????��?script???
-            for (i = scripts.length - 1; i > -1 && (temp = scripts[i]); i--) {
-
-                if (temp.readyState === 'interactive') {
-                    script = temp;
-                }
-            }
-
-        }
-
-        // script = getCurrentScript();
-        if (script) {
-            name = urlToName(script.src);
-        }
-        else {
-            name = currentlyAddingModuleName;
-        }
-
-        definedModules.push({
-            factory:factory,
-            deps   :deps,
-            name   :name
-        })
-
-
-    }
-
-
-    /**
-     *  --------------------------------------------------------------
-     *  ???????
-     *  --------------------------------------------------------------
-     */
 
     function breakCirle(mod) {
         for (var i = 0; i < mod.deps.length; i++) {
@@ -739,483 +284,277 @@ SNS.provide(function () {
         }
     }
 
+    function memoize(name, deps, factory) {
 
-    function createRequire(baseName) {
-        // <div class="sns-widget" data-sns-follow='{useId:123}'></div>
-        // SNS.require(["sns/follow"], function(Follow){ })
-
-        // SNS.require({version:"1.0", skin:null, combo:true}, ["sns/follow"], function(Follow){ })
-
-        /**
-         * @ignore
-         */
-
-        var newRequire = function (deps, callback, context) {
-
-            //?��??????????
-            if (!callback) {
-                callback = undefined;
-                context = {mods:{}}
+        var realDeps = [];
+        if (memoryModules[name]) throw new Error(name + " 模块已经存在");
+        for (var i = 0; i < deps.length; i++) {
+            var nmlName = normalize(deps[i], name);
+            if (nmlName !== name) {
+                realDeps.push(nmlName);
             }
-            else if (SNS.isPlainObject(callback)) {
-                context = callback;
-                callback = undefined;
-            } else if (!context) {
-                context = {mods:{}};
+        }
+
+        memoryModules[name] = {
+            deps   :realDeps,
+            factory:factory,
+            require:createRequire(name)
+        }
+        breakCirle(memoryModules[name]);
+        return name;
+    }
+
+    function wrapRequireCallback(name, deps, callback) {
+        name = name + guid();
+        memoryModules[name] = {
+            deps   :deps,
+            factory:callback
+        }
+        return name;
+    }
+
+    function isMemoize(name) {
+        return memoryModules[name] ? true : false;
+    }
+
+    function isRequire(name) {
+        return runedModules[name] === undefined ? false : true;
+    }
+
+    function isRun(name) {
+        return runedModules[name] === undefined ? false : true;
+    }
+
+    function isLoading(name) {
+        return loadingModules[name] ? true : false;
+    }
+
+    function exeModule(name) {
+
+        var
+            mod = memoryModules[name],
+            deps = mod.deps,
+            canExe = true,
+            exports,
+            exportsMods = [];
+
+        for (var i = 0; i < deps.length; i++) {
+            if (!isRequire(deps[i])) {
+                canExe = false;
+            } else {
+                exportsMods.push(runedModules[deps[i]].exports);
             }
+        }
 
-            var allDeps = [], needLoadDeps = [], i, comboMods = [], skinMods = [];
-            var needLoadName = [], modConfig, modName;
+        if (!canExe) return;
+        if (mod.factory) {
+            exports = mod.factory.apply(mod, exportsMods);
+        }
+        memoryModules[name] = null;
 
-            //???????
-            for (i = 0; i < deps.length; i++) {
-                if (!deps[i])continue;
-                if (typeof deps[i] === "string") {
-                    modName = deps[i];
-                    modConfig = {}
-                }
-                else {
-                    modName = deps[i].name;
-                    modConfig = deps[i];
-                    deps[i] = modName;
-                }
+        runedModules[name] = {
+            name   :name,
+            exports:exports
+        };
+        notify(name);
+    }
 
-                modConfig = SNS.mix(SNS.config("mods", {name:modName}) || {}, modConfig);
-
-
-                if (modConfig.combo) {
-                    for (var j = 0; j < modConfig.combo.length; j++) {
-
-                        var cmodConfig = SNS.mix({}, SNS.config("mods", {name:modConfig.combo[j]}) || {});
-
-                        modConfig.combo[j] = cmodConfig.name = normalize(modConfig.combo[j], baseName, modConfig.version)
-                        context.mods[cmodConfig.name] = cmodConfig
-
-                        comboMods.push(cmodConfig.name);
-
-
+    function notify(name) {
+        var mod, deps;
+        for (var p in memoryModules) {
+            mod = memoryModules[p];
+            if (mod) {
+                deps = mod.deps;
+                for (var j = 0; j < deps.length; j++) {
+                    if (deps[j] === name) {
+                        exeModule(p);
                     }
-
                 }
-
-                if (typeof modConfig.skin === "string") {
-                    var cmodConfig = SNS.mix({}, SNS.config("mods", {name:modConfig.skin}) || {});
-                    modConfig.skin = cmodConfig.name = normalize(modConfig.skin, baseName, modConfig.version);
-                    context.mods[cmodConfig.name] = cmodConfig
-                    comboMods.push(cmodConfig.name);
-                }
-
-                deps[i] = modName = modConfig.name = normalize(modName, baseName, modConfig.version);
-                context.mods[modName] = modConfig;
-                allDeps.push(deps[i]);
-
-
             }
 
-
-            allDeps = allDeps.concat(comboMods);
-            context.comboMods = comboMods;
-
-
-            for (var i = 0; i < allDeps.length; i++) {
-
-                modName = allDeps[i];
+        }
+    }
 
 
-                modConfig = context.mods[modName] || {};
+    /**
+     * -------------------------------------------------------------
+     * 定义模块
+     * -------------------------------------------------------------
+     */
 
+    function define(deps, factory) {
 
-                if (modName && !isLoading(modName) && !isRequire(modName) && !isMemoize(modName)) {
-                    needLoadDeps.push(modName);
+        var name, script, i;
+        if (isFunction(deps)) {
+            factory = deps;
+            deps = [];
+        }
+        if (!factory) return;
+        if (document.attachEvent) {
+            var
+                temp,
+                scripts = document.getElementsByTagName('script');
+            //ie6-9 得到当前正在执行的script标签
+            for (i = scripts.length - 1; i > -1 && (temp = scripts[i]); i--) {
+                if (temp.readyState === 'interactive') {
+                    script = temp;
                 }
-
-
             }
+        }
 
+        if (script) {
+            name = urlToName(script.src);
+        }
+        else {
+            name = currentlyAddingModuleName;
+        }
+
+        definedModules.push({
+            factory:factory,
+            deps   :deps,
+            name   :name
+        })
+    }
+
+
+    /**
+     *  --------------------------------------------------------------
+     *  加载模块
+     *  --------------------------------------------------------------
+     */
+    function createRequire(baseName) {
+
+        var newRequire = function (deps, callback) {
+            var needLoadDeps = [], name;
+            //搜集依赖
+            for (var i = 0; i < deps.length; i++) {
+                name = deps[i] = normalize(deps[i], baseName);
+
+                if (name && !isLoading(name) && !isRun(name) && !isMemoize(name)) {
+                    needLoadDeps.push(name);
+                }
+            }
             if (callback) {
-
-                var newModuleName = wrapRequireCallback(baseName, allDeps, callback);
+                var newModuleName = wrapRequireCallback(baseName, deps, callback);
             }
 
             if (needLoadDeps.length === 0) {
-
                 callback && exeModule(newModuleName);
                 return;
             }
 
-
-            //needLoadDeps = comboUrl(needLoadDeps);
             for (i = 0; i < needLoadDeps.length; i++) {
+                newRequire.load(needLoadDeps[i], function (moduleName) {
 
-
-                newRequire.load(needLoadDeps[i], function (moduleName, cfgs) {
-
-
-                    //  initModule(currentName);
-                    var leName;
-                    var mod = memoryModules[moduleName];
-                    var realDeps = [];
+                    var mod = memoryModules[moduleName], deps = [], name, needLoadDeps = [];
                     if (!mod) {
                         //throw new Error(name+ " load error");
                         notify(moduleName);
-
                     }
                     else {
-                        var mdeps = [];
-
-
-                        for (var i = 0; i < mod.deps.length; i++) {
-
-                            if (mod.deps[i] && !isKeyWord(mod.deps[i]) && !isRequire(mod.deps[i]) && !isMemoize(mod.deps[i])) {
-                                if (!((cfgs.skin === null || typeof cfgs.skin === "string") && isCssPath(mod.deps[i]))) {
-                                    var depsName = normalize(mod.deps[i], mod.name)
-                                    mdeps.push({
-                                        name   :depsName,
-                                        version:cfgs.version
-                                    });
-                                    realDeps.push(depsName);
-                                }
+                        deps = mod.deps;
+                        for (var i = 0; i < deps.length; i++) {
+                            name = mod.deps[i];
+                            if (name && !isLoading(name) && !isRun(name) && !isMemoize(name)) {
+                                needLoadDeps.push(name);
                             }
-                        }
-                        mod.deps = realDeps;
-                        //????????????css
-
-                        if (mdeps && mdeps.length > 0) {
-
-                            mod.require(mdeps, context);
-                        }
-                        else {
-                            exeModule(moduleName);
                         }
                     }
 
-                }, context)
 
+                    if (needLoadDeps.length > 0) {
+                        newRequire(needLoadDeps);
+                    }
+                    else {
+                        exeModule(moduleName);
+                    }
+                })
             }
-
         }
 
 
-        newRequire.load = function (name, callback, context) {
-
-            context = context || {};
-            var modName, modConfig;
+        newRequire.load = function (name, callback) {
 
             var currentModule;
             var wrapCallback = function () {
-
-
-
-
                 var currentModule, index = 0, temp;
-
-
                 for (var i = 0; i < definedModules.length; i++) {
                     temp = definedModules[i];
-
                     if (temp) {
                         if (!temp.name || temp.name === name) {
                             currentModule = definedModules[i];
                             currentModule.name = name;
                             index = i;
                         }
-
-
                     }
-
                 }
 
-
-                //  currentModule = currentModule?currentModule:{name:name}
-                if (currentModule) {
-
-
-                    for (var j = 0; j < afterDefined.length; j++) {
-                        afterDefined[j](currentModule);
+                if (!currentModule) {
+                    currentModule = {
+                        name   :name,
+                        deps   :[],
+                        factory:function () {
+                        }
                     }
-                    modName = currentModule.name;
-                    modConfig = context.mods[modName];
-
-                    if (modConfig.combo) {
-                        currentModule.deps = currentModule.deps.concat(modConfig.combo)
-                    }
-                    if (modConfig.skin) {
-                        currentModule.deps = currentModule.deps.push(modConfig.skin)
-                    }
-
-                    var realName = memoize(modName, currentModule.deps, currentModule.factory);
-
-                    definedModules.splice(index, 1);
-                    callback && callback(realName, modConfig);
-
-
-                }
-                else {
-                    currentModule = {name:name}
-                    for (var j = 0; j < afterDefined.length; j++) {
-                        afterDefined[j](currentModule);
-                    }
-                    modName = currentModule.name;
-                    modConfig = context.mods[modName];
-
-                    //????????????�?????????????????????????
-                    var realName = memoize(modName, [], modConfig.factory || function () {
-                    });
-                    callback && callback(realName, modConfig);
                 }
 
+                var realName = memoize(name, currentModule.deps, currentModule.factory);
+                definedModules.splice(index, 1);
+                callback && callback(realName);
                 if (loadingModules[name]) {
                     delete loadingModules[name];
                 }
-
-
-
             }
 
-            if (name.indexOf(".css") !== -1) {
-                currentModule = {name:name};
-                for (var j = 0; j < afterDefined.length; j++) {
-                    afterDefined[j](currentModule);
-                }
-                modName = currentModule.name;
-                modConfig = context.mods[modName];
-                var cssWrapCallback = function () {
-                    var realName = memoize(modName, [], function () {
-                    });
-                    callback && callback(realName, modConfig);
-
-                    if (loadingModules[name]) {
-                        delete loadingModules[name];
-                    }
-                }
-
+            if (isCssPath(name)) {
                 if (loadingModules[name]) {
-                    addLinkLoadListener(loadingModules[name], cssWrapCallback)
+                    addLinkLoadListener(loadingModules[name], wrapCallback)
                 } else {
-
-                    loadingModules[name] = createLink({}, nameToUrl(name), cssWrapCallback);
-
+                    loadingModules[name] = createLink(nameToUrl(name), wrapCallback);
                 }
             }
             else {
                 if (loadingModules[name]) {
-                    addLoadListener(loadingModules[name], wrapCallback)
+                    addScriptLoadListener(loadingModules[name], wrapCallback)
                 } else {
                     currentlyAddingModuleName = name;
-                    loadingModules[name] = createScript({}, nameToUrl(name), wrapCallback);
+                    loadingModules[name] = createScript(nameToUrl(name), wrapCallback);
                     currentlyAddingModuleName = null;
                 }
-
-
             }
-
-
         }
 
-
-        newRequire.config = function (obj) {
-
-            var pkgs = obj.pkgs || [],
-                oldPkgs = defaultConfig.pkgs;
-            delete obj.pkgs
-
-            for (var i = 0; i < pkgs.length; i++) {
-                pkgs[i].path = getDirectory(normalizeURL(pkgs[i].path, baseName));
-                //  pkgs[i].timestamp =normalizeURL(pkgs[i].timestamp, pkgs[i].path);
+        newRequire.config = function (name, value) {
+            if (name == "pkgs") {
+                defaultConfig.pkgs.push(value)
             }
-
-            mix(defaultConfig, obj, true);
-            defaultConfig.pkgs = oldPkgs.concat(pkgs);
-
-
+            else {
+                defaultConfig[name] = value;
+            }
         };
-        newRequire.combo = function (O) {
-            setComboConfigs(O)
-        };
-
 
         newRequire.normalize = function (n) {
             return normalize(n, baseName)
         }
 
-        newRequire.beforeMemoize = function (fun) {
-
-            beforeMemoize.push(fun);
-        }
-        newRequire.afterDefined = function (fun) {
-
-            afterDefined.push(fun);
-        }
-
-        newRequire.beforeRequire = function (fun) {
-            beforeRequire.push(fun);
-        }
-
-        newRequire.beforeLoad = function (fun) {
-            beforeLoad.push(fun);
-        }
-
-
         return newRequire;
-
     }
 
     require = createRequire(location.href);
-    require.afterDefined(comboAfterDefined);
 
-
-    /**
-     * -------------------------------------------------------------------------
-     * ????SNS cdn??
-     * @todo combo
-     * -------------------------------------------------------------------------
-     *
-     */
-
-
-
-
-
-
-    SNS.config("pkgs", {
-        name   :"sns",
-        path   :currentPath + "/src/"
-
-    })
-    SNS.config("pkgs", {
-        name   :"base",
-        path   :currentPath
+    require.config("pkgs", {
+        name:"self",
+        path:getCurrentScript().src
     })
 
-
-    //?SNS ????????????
-    require.beforeRequire(function (e) {
-        var fileName = parseUri(e.name).file;
-        if (e.result && e.result.prototype) e.result.prototype.name = fileName.split(".")[0];
-
-    })
-
-
-    //????????
-    //@todo ????????��????????
-    // ???????��??????????????
-
-    function timeStampRequire() {
-        var args = arguments;
-        if (SNS.isDebug()) {
-            require.config({
-                timestamp:new Date().getTime()
-            })
-
-            require.apply(this, args);
-        }
-        else {
-
-
-            var old = storage(SNS_LAST_MODIFIY),
-                now = new Date().getTime(),
-                itl = interval();
-            if (!old || (old && ((now - old) > 1000 * 60 * itl))) {
-
-                require.config({
-                    timestamp:now
-                })
-
-                require(["sns/timestamp"], function (ts) {
-
-                    timeStamp(ts.timestamp);
-                    interval(ts.interval);
-
-                    require.config({
-                        timestamp:timeStamp()
-                    })
-
-                    require.apply(this, args);
-                    storage(SNS_LAST_MODIFIY, now);
-
-                })
-
-
-            } else {
-                require.config({
-                    timestamp:timeStamp()
-                })
-
-                require.apply(this, args);
-            }
-        }
+    if (!win.require && !win.define) {
+        win.require = require;
+        win.define = define;
     }
-
 
     return      {
-
-        /**
-         *
-         * @class ????????�SNS??????????????AMD???????????????????????????????????��??????????? ??
-         * @name SNS.define
-         * @param {array} depsModules ???????????????
-         * @param {function} factoryFun ?????????????
-         * @example
-         *
-         *   SNS.define(["sns/foo"], function(foo){
-         *
-         *      //??return??????????
-         *      return {
-         *        newFoo:new Foo();
-         *      }
-         *   })
-         *
-         * @example
-         *  // ????css???
-         *   SNS.define(["sns/foo","sns/foo.css"], function(foo){
-         *
-         *      //??return??????????
-         *      return {
-         *        newFoo:new Foo();
-         *      }
-         *   })
-         *
-         */
         define :define,
-        /**
-         * @class ????????�SNS??????????????AMD????????????? ???????????????????????��??????????? ??
-         * @name SNS.require
-         * @param {array} modules ???????????????
-         * @param {function} callback ?????????????
-         *  @example
-         *   //????auth???
-         *   SNS.require(["sns/auth"],function(Auth){
-         *      var auth =  new Auth();
-         *  })
-         * @example
-         *  //?��??��
-         *  SNS.config("mods", {name: "sns/auth",  version: "2.0"})
-         *   SNS.require(["sns/auth"],function(Auth){
-         *      var auth =  new Auth();
-         *  })
-         *
-         * @example
-         *  // ?????????
-         *  SNS.config("mods", {name: "sns/auth",  skin: "2.0"})
-         *
-         *   SNS.require(["sns/auth"],function(Auth){
-         *      var auth =  new Auth();
-         *  })
-         *
-         * @example
-         *   // ?�I???
-         *  SNS.config("mods", {name: "sns/auth",  skin: ??sns/auth2.css??})
-         *
-         *   SNS.require(["sns/auth"],function(Auth){
-         *      var auth =  new Auth();
-         *  })
-
-         */
-        require:require//timeStampRequire
-
-
-
+        require:require
     }
 
-});
-
+})(window);

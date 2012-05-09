@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <script src="../src/small.js"></script>
+</head>
+<body>
+<div id="msg"></div>
+<script>
+    require(["./js/test","./css/test.css"], function(exports){
+       document.getElementById("msg").innerHTML=exports
+
+    })
+
+</script>
+
+</body>
+</html>
